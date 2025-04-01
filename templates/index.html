@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubernetes-like Simulator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .card {
+            margin-bottom: 20px;
+        }
+        .status-card {
+            background-color: #f8f9fa;
+        }
+        .action-card {
+            background-color: #ffffff;
+        }
+        .response-area {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">Kubernetes-like Simulator</h1>
+        
+        <!-- Cluster Status -->
+        <div class="card status-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Cluster Status</h5>
+            </div>
+            <div class="card-body">
+                <div id="clusterStatus" class="response-area">Loading...</div>
+                <button class="btn btn-primary mt-2" onclick="refreshStatus()">Refresh Status</button>
+            </div>
+        </div>
+
+        <!-- Add Node -->
+        <div class="card action-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Add Node</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="nodeCpu" class="form-label">CPU Capacity</label>
+                    <input type="number" class="form-control" id="nodeCpu" min="1">
+                </div>
+                <button class="btn btn-success" onclick="addNode()">Add Node</button>
+                <div id="addNodeResponse" class="response-area"></div>
+            </div>
+        </div>
+
+        <!-- Remove Node -->
+        <div class="card action-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Remove Node</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="nodeId" class="form-label">Node ID</label>
+                    <input type="text" class="form-control" id="nodeId">
+                </div>
+                <button class="btn btn-danger" onclick="removeNode()">Remove Node</button>
+                <div id="removeNodeResponse" class="response-area"></div>
+            </div>
+        </div>
+
+        <!-- Create Pod -->
+        <div class="card action-card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Create Pod</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="podCpu" class="form-label">CPU Required</label>
+                    <input type="number" class="form-control" id="podCpu" min="1">
+                </div>
+                <button class="btn btn-primary" onclick="createPod()">Create Pod</button>
+                <div id="createPodResponse" class="response-area"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Refresh cluster status every 5 seconds
+        setInterval(refreshStatus, 5000);
+
+        async function refreshStatus() {
+            try {
+                const response = await fetch('/api/cluster/status');
+                const data = await response.json();
+                document.getElementById('clusterStatus').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('clusterStatus').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function addNode() {
+            const cpu = document.getElementById('nodeCpu').value;
+            try {
+                const response = await fetch('/api/nodes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ cpu_capacity: parseInt(cpu) }),
+                });
+                const data = await response.json();
+                document.getElementById('addNodeResponse').textContent = JSON.stringify(data, null, 2);
+                refreshStatus();
+            } catch (error) {
+                document.getElementById('addNodeResponse').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function removeNode() {
+            const nodeId = document.getElementById('nodeId').value;
+            try {
+                const response = await fetch(`/api/nodes/${nodeId}`, {
+                    method: 'DELETE',
+                });
+                const data = await response.json();
+                document.getElementById('removeNodeResponse').textContent = JSON.stringify(data, null, 2);
+                refreshStatus();
+            } catch (error) {
+                document.getElementById('removeNodeResponse').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function createPod() {
+            const cpu = document.getElementById('podCpu').value;
+            try {
+                const response = await fetch('/api/pods', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ cpu_required: parseInt(cpu) }),
+                });
+                const data = await response.json();
+                document.getElementById('createPodResponse').textContent = JSON.stringify(data, null, 2);
+                refreshStatus();
+            } catch (error) {
+                document.getElementById('createPodResponse').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Initial status load
+        refreshStatus();
+    </script>
+</body>
+</html> 

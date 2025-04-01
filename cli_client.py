@@ -4,7 +4,7 @@ import sys
 import time
 
 # Update BASE_URL to use the IP address where the server is running
-BASE_URL = 'http://192.168.29.14:5000'
+BASE_URL = 'http://127.0.0.1:5000'
 
 def check_server():
     try:
