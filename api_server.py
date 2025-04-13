@@ -6,6 +6,7 @@ from datetime import datetime
 import uuid
 import sys
 import logging
+import multiprocessing
 
 # Configure logging with more details
 logging.basicConfig(
@@ -15,30 +16,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Get system CPU count
+SYSTEM_CPU_COUNT = multiprocessing.cpu_count()
+MAX_NODE_CPU = min(8, SYSTEM_CPU_COUNT)  # Cap at 8 or system CPU count, whichever is lower
+MAX_POD_CPU = min(6, SYSTEM_CPU_COUNT)   # Cap at 6 or system CPU count, whichever is lower
+
+logger.info(f"System CPU count: {SYSTEM_CPU_COUNT}")
+logger.info(f"Maximum node CPU capacity: {MAX_NODE_CPU}")
+logger.info(f"Maximum pod CPU requirement: {MAX_POD_CPU}")
+
 app = Flask(__name__)
 
+# In-memory storage for cluster state
+nodes = {}  # {node_id: {cpu_capacity, cpu_available, pods, last_heartbeat, status}}
+pods = {}   # {pod_id: {node_id, cpu_required}}
+
+def cleanup_orphaned_containers():
+    """Clean up containers that exist in our state but not in Docker"""
+    logger.info("Cleaning up orphaned containers...")
+    
+    # Get all Docker containers
+    docker_containers = {c.id: c for c in client.containers.list(all=True)}
+    
+    # Clean up nodes
+    for node_id, node_info in list(nodes.items()):
+        if 'container_id' in node_info:
+            if node_info['container_id'] not in docker_containers:
+                logger.warning(f"Removing node {node_id} - container not found in Docker")
+                del nodes[node_id]
+    
+    # Clean up pods
+    for pod_id, pod_info in list(pods.items()):
+        if 'container_id' in pod_info:
+            if pod_info['container_id'] not in docker_containers:
+                logger.warning(f"Removing pod {pod_id} - container not found in Docker")
+                # Remove pod from its node's pod list
+                if pod_info['node_id'] in nodes:
+                    nodes[pod_info['node_id']]['pods'] = [p for p in nodes[pod_info['node_id']]['pods'] if p != pod_id]
+                del pods[pod_id]
+
+# Initialize the system
 try:
     client = docker.from_env()
     # Test Docker connection
     client.ping()
-    logger.info("Successfully connected to Docker")
-    
+    logger.info("Successfully connected to Docker")    
     # List all existing containers
     existing_containers = client.containers.list()
     logger.info(f"Found {len(existing_containers)} existing containers")
     for container in existing_containers:
         logger.info(f"Container: {container.name} (ID: {container.short_id})")
+    
+    # Clean up any orphaned containers
+    cleanup_orphaned_containers()
+    
 except docker.errors.DockerException as e:
     logger.error("Error: Docker is not running or not properly installed.")
     logger.error("Please make sure Docker Desktop is installed and running.")
     logger.error("You can download Docker Desktop from: https://www.docker.com/products/docker-desktop/")
     sys.exit(1)
 
-# In-memory storage for cluster state
-nodes = {}  # {node_id: {cpu_capacity, cpu_available, pods, last_heartbeat, status}}
-pods = {}   # {pod_id: {node_id, cpu_required}}
-
 class NodeManager:
+    @staticmethod
+    def get_total_allocated_cpu():
+        return sum(node['cpu_capacity'] for node in nodes.values())
+
     @staticmethod
     def add_node(cpu_capacity):
         node_id = str(uuid.uuid4())
@@ -46,33 +88,41 @@ class NodeManager:
             logger.info(f"Creating new node container with ID: {node_id}")
             logger.info(f"CPU Capacity: {cpu_capacity} cores")
             
+            # Check if adding this node would exceed system capacity
+            total_allocated = NodeManager.get_total_allocated_cpu()
+            if total_allocated + cpu_capacity > SYSTEM_CPU_COUNT:
+                error_msg = f"Cannot add node: Total CPU capacity ({total_allocated + cpu_capacity}) would exceed system capacity ({SYSTEM_CPU_COUNT})"
+                logger.error(error_msg)
+                return {'error': error_msg}
+            
             # Launch a Docker container for the node
-            container = client.containers.run(
-                'python:3.9-slim',
-                command='tail -f /dev/null',  # Keep container running
-                detach=True,
-                name=f'node-{node_id}'
-            )
-            
-            logger.info(f"Container created successfully: {container.name} (ID: {container.short_id})")
-            
-            nodes[node_id] = {
-                'cpu_capacity': cpu_capacity,
-                'cpu_available': cpu_capacity,
-                'pods': [],
-                'last_heartbeat': datetime.now(),
-                'status': 'healthy',
-                'container_id': container.id
-            }
-            
-            # Start heartbeat thread for this node
-            threading.Thread(target=HealthMonitor.start_heartbeat, args=(node_id,), daemon=True).start()
-            logger.info(f"Started heartbeat monitoring for node {node_id}")
-            
-            return node_id
-        except docker.errors.APIError as e:
-            logger.error(f"Docker API error while creating node: {str(e)}")
-            return {'error': f'Docker API error: {str(e)}'}
+            try:
+                container = client.containers.run(
+                    'python:3.9-slim',
+                    command='tail -f /dev/null',  # Keep container running
+                    detach=True,
+                    name=f'node-{node_id}'
+                )
+                
+                logger.info(f"Container created successfully: {container.name} (ID: {container.short_id})")
+                
+                # Only add the node to our data structure if container creation succeeded
+                nodes[node_id] = {
+                    'cpu_capacity': cpu_capacity,
+                    'cpu_available': cpu_capacity,
+                    'pods': [],
+                    'last_heartbeat': datetime.now(),
+                    'status': 'healthy',
+                    'container_id': container.id
+                }
+                
+                # Start heartbeat thread for this node
+                threading.Thread(target=HealthMonitor.start_heartbeat, args=(node_id,), daemon=True).start()
+                logger.info(f"Started heartbeat monitoring for node {node_id}")
+                return node_id
+            except docker.errors.APIError as e:
+                logger.error(f"Docker API error while creating container: {str(e)}")
+                return {'error': f'Docker API error: {str(e)}'}
         except Exception as e:
             logger.error(f"Unexpected error while creating node: {str(e)}")
             return {'error': str(e)}
@@ -82,13 +132,66 @@ class NodeManager:
         if node_id in nodes:
             try:
                 logger.info(f"Removing node: {node_id}")
-                # Stop and remove the container
-                container = client.containers.get(nodes[node_id]['container_id'])
-                container.stop()
-                container.remove()
+                
+                # Store pods that need to be rescheduled
+                pods_to_reschedule = nodes[node_id]['pods'].copy()
+                logger.info(f"Found {len(pods_to_reschedule)} pods to reschedule")
+                
+                # Get container information from our data structure
+                container_id = nodes[node_id]['container_id']
+                
+                # Try to get the container from Docker
+                try:
+                    container = client.containers.get(container_id)
+                    
+                    # Try to stop and remove the container
+                    try:
+                        container.stop()
+                        container.remove()
+                        logger.info(f"Container for node {node_id} stopped and removed successfully")
+                    except docker.errors.APIError as e:
+                        logger.error(f"Error stopping/removing container: {str(e)}")
+                        return {'error': f'Docker API error: {str(e)}'}
+                except docker.errors.NotFound:
+                    logger.warning(f"Container for node {node_id} not found in Docker, may have been already removed")
+                
+                # Remove the node from our data structure
                 del nodes[node_id]
-                logger.info(f"Successfully removed node {node_id} and its container")
-                return {'message': f'Node {node_id} removed successfully'}
+                logger.info(f"Successfully removed node {node_id} from cluster")
+
+                # Now reschedule all pods from the removed node
+                rescheduled_pods = []
+                failed_pods = []
+                
+                for pod_id in pods_to_reschedule:
+                    if pod_id in pods:
+                        pod_info = pods[pod_id]
+                        logger.info(f"Attempting to reschedule pod {pod_id}")
+                        
+                        # Try to stop and remove the pod container
+                        try:
+                            if 'container_id' in pod_info:
+                                container = client.containers.get(pod_info['container_id'])
+                                container.stop()
+                                container.remove()
+                        except (docker.errors.NotFound, docker.errors.APIError) as e:
+                            logger.warning(f"Error removing pod container: {str(e)}")
+                        
+                        # Try to reschedule the pod
+                        new_pod_id = PodScheduler.schedule_pod(pod_info['cpu_required'], pod_info.get('image', 'nginx:latest'))
+                        
+                        if isinstance(new_pod_id, dict):  # Scheduling failed
+                            failed_pods.append(pod_id)
+                            logger.error(f"Failed to reschedule pod {pod_id}")
+                        else:
+                            rescheduled_pods.append(pod_id)
+                            logger.info(f"Successfully rescheduled pod {pod_id}")
+                
+                return {
+                    'message': f'Node {node_id} removed successfully',
+                    'rescheduled_pods': len(rescheduled_pods),
+                    'failed_pods': len(failed_pods)
+                }
             except Exception as e:
                 logger.error(f"Error removing node {node_id}: {str(e)}")
                 return {'error': str(e)}
@@ -97,22 +200,85 @@ class NodeManager:
 
 class PodScheduler:
     @staticmethod
-    def schedule_pod(cpu_required):
-        logger.info(f"Attempting to schedule pod requiring {cpu_required} CPU cores")
+    def schedule_pod(cpu_required, image="nginx:latest"):
+        logger.info(f"Attempting to schedule pod requiring {cpu_required} CPU cores, image: {image}")
+        
+        # Check if we have any nodes
+        if not nodes:
+            logger.error("No nodes available in the cluster")
+            return {'error': 'No nodes available in the cluster'}
+        
         # First-Fit algorithm implementation
         for node_id, node_info in nodes.items():
-            if node_info['status'] == 'healthy' and node_info['cpu_available'] >= cpu_required:
+            # Verify the node is healthy before scheduling
+            if node_info['status'] != 'healthy':
+                logger.info(f"Skipping unhealthy node {node_id}")
+                continue
+                
+            # Verify Docker container exists and is running
+            try:
+                container = client.containers.get(node_info['container_id'])
+                if container.status != 'running':
+                    logger.warning(f"Node {node_id} container is not running (status: {container.status})")
+                    node_info['status'] = 'unhealthy'
+                    continue
+            except docker.errors.NotFound:
+                logger.warning(f"Node {node_id} container not found in Docker")
+                node_info['status'] = 'unhealthy'
+                continue
+            except Exception as e:
+                logger.warning(f"Error checking node {node_id} container: {str(e)}")
+                continue
+                
+            # Check if node has enough CPU
+            if node_info['cpu_available'] >= cpu_required:
                 pod_id = str(uuid.uuid4())
-                node_info['cpu_available'] -= cpu_required
-                node_info['pods'].append(pod_id)
-                pods[pod_id] = {
-                    'node_id': node_id,
-                    'cpu_required': cpu_required,
-                    'created_at': datetime.now().isoformat()
-                }
-                logger.info(f"Successfully scheduled pod {pod_id} on node {node_id}")
-                logger.info(f"Node {node_id} now has {node_info['cpu_available']} CPU cores available")
-                return pod_id
+                
+                # Create an actual container for the pod
+                try:
+                    # Use a random port between 10000-20000 for port mapping
+                    host_port = 10000 + (hash(pod_id) % 10000)
+                    
+                    # Launch container for the pod
+                    pod_container = client.containers.run(
+                        image=image,
+                        detach=True,
+                        name=f'pod-{pod_id}',
+                        ports={'80/tcp': host_port},  # Map container port 80 to a host port
+                        environment={
+                            'POD_ID': pod_id,
+                            'NODE_ID': node_id
+                        }
+                    )
+                    
+                    logger.info(f"Created pod container: {pod_container.name} (ID: {pod_container.short_id})")
+                    
+                    # Update resource allocation
+                    node_info['cpu_available'] -= cpu_required
+                    node_info['pods'].append(pod_id)
+                    
+                    # Store pod information
+                    pods[pod_id] = {
+                        'node_id': node_id,
+                        'cpu_required': cpu_required,
+                        'created_at': datetime.now().isoformat(),
+                        'container_id': pod_container.id,
+                        'status': 'running',
+                        'image': image,
+                        'host_port': host_port
+                    }
+                    
+                    logger.info(f"Successfully scheduled pod {pod_id} on node {node_id}")
+                    logger.info(f"Pod is accessible at http://localhost:{host_port}")
+                    logger.info(f"Node {node_id} now has {node_info['cpu_available']} CPU cores available")
+                    return pod_id
+                except docker.errors.APIError as e:
+                    logger.error(f"Docker API error while creating pod container: {str(e)}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Unexpected error while creating pod container: {str(e)}")
+                    continue
+                
         logger.error(f"Failed to find suitable node for pod requiring {cpu_required} CPU cores")
         return {'error': 'No suitable node found'}
 
@@ -124,18 +290,40 @@ class PodScheduler:
         
         failed_pods = nodes[failed_node_id]['pods']
         logger.info(f"Rescheduling {len(failed_pods)} pods from failed node {failed_node_id}")
+        
         for pod_id in failed_pods:
+            if pod_id not in pods:
+                logger.warning(f"Pod {pod_id} not found in pods list, skipping")
+                continue
+                
             pod_info = pods[pod_id]
             logger.info(f"Attempting to reschedule pod {pod_id}")
+            
+            # Try to stop and remove the failed pod container if it exists
+            try:
+                if 'container_id' in pod_info:
+                    container = client.containers.get(pod_info['container_id'])
+                    container.stop()
+                    container.remove()
+                    logger.info(f"Removed failed pod container for pod {pod_id}")
+            except docker.errors.NotFound:
+                logger.warning(f"Failed pod container not found in Docker, may have been already removed")
+            except Exception as e:
+                logger.warning(f"Error removing failed pod container: {str(e)}")
+            
             # Try to reschedule the pod
-            new_node_id = PodScheduler.schedule_pod(pod_info['cpu_required'])
+            image = pod_info.get('image', 'nginx:latest')
+            new_node_id = PodScheduler.schedule_pod(pod_info['cpu_required'], image)
+            
             if isinstance(new_node_id, dict):
                 # If rescheduling failed, mark pod as failed
                 pods[pod_id]['status'] = 'failed'
                 logger.error(f"Failed to reschedule pod {pod_id}")
             else:
-                pods[pod_id]['node_id'] = new_node_id
                 logger.info(f"Successfully rescheduled pod {pod_id} to node {new_node_id}")
+                
+        # Clear the failed node's pod list after rescheduling
+        nodes[failed_node_id]['pods'] = []
 
 class HealthMonitor:
     @staticmethod
@@ -143,20 +331,97 @@ class HealthMonitor:
         logger.info(f"Starting heartbeat monitoring for node {node_id}")
         while True:
             if node_id in nodes:
-                nodes[node_id]['last_heartbeat'] = datetime.now()
-                nodes[node_id]['status'] = 'healthy'
+                try:
+                    # Get container stats
+                    container = client.containers.get(nodes[node_id]['container_id'])
+                    stats = container.stats(stream=False)  # Get current stats
+                    
+                    # Calculate health metrics
+                    cpu_usage = stats['cpu_stats']['cpu_usage']['total_usage']
+                    memory_usage = stats['memory_stats'].get('usage', 0)
+                    memory_limit = stats['memory_stats'].get('limit', 1)
+                    memory_percent = (memory_usage / memory_limit) * 100
+                    
+                    # Update node health information
+                    nodes[node_id].update({
+                        'last_heartbeat': datetime.now(),
+                        'status': 'healthy',
+                        'health_metrics': {
+                            'cpu_usage_percent': cpu_usage,
+                            'memory_usage_percent': memory_percent,
+                            'memory_usage_mb': memory_usage / (1024 * 1024),
+                            'memory_limit_mb': memory_limit / (1024 * 1024),
+                            'running_pods': len(nodes[node_id]['pods']),
+                            'container_status': container.status,
+                            'last_error': None
+                        }
+                    })
+                except Exception as e:
+                    # Update node with error information
+                    if node_id in nodes:
+                        nodes[node_id].update({
+                            'last_heartbeat': datetime.now(),
+                            'status': 'unhealthy',
+                            'health_metrics': {
+                                'last_error': str(e),
+                                'error_time': datetime.now().isoformat()
+                            }
+                        })
+                    logger.error(f"Error updating health metrics for node {node_id}: {str(e)}")
             time.sleep(5)  # Send heartbeat every 5 seconds
 
     @staticmethod
     def check_health():
         while True:
             current_time = datetime.now()
-            for node_id, node_info in nodes.items():
-                if (current_time - node_info['last_heartbeat']).seconds > 15:  # 3 missed heartbeats
+            for node_id, node_info in list(nodes.items()):  # Use list() to avoid modification during iteration
+                try:
+                    # Check for missed heartbeats
+                    heartbeat_age = (current_time - node_info['last_heartbeat']).seconds
+                    
+                    # Get health metrics
+                    health_metrics = node_info.get('health_metrics', {})
+                    memory_percent = health_metrics.get('memory_usage_percent', 0)
+                    running_pods = health_metrics.get('running_pods', 0)
+                    container_status = health_metrics.get('container_status', 'unknown')
+                    
+                    # Define health conditions
+                    conditions = {
+                        'heartbeat': heartbeat_age <= 15,  # Less than 3 missed heartbeats
+                        'memory': memory_percent < 90,     # Memory usage below 90%
+                        'container': container_status == 'running',
+                        'pods': running_pods <= node_info.get('cpu_capacity', 0) * 2  # Basic pod density check
+                    }
+                    
+                    # Update node status based on conditions
+                    if all(conditions.values()):
+                        if node_info['status'] != 'healthy':
+                            logger.info(f"Node {node_id} recovered and marked as healthy")
+                            node_info['status'] = 'healthy'
+                    else:
+                        if node_info['status'] == 'healthy':
+                            logger.warning(f"Node {node_id} marked as unhealthy - Failed conditions: {[k for k,v in conditions.items() if not v]}")
+                            node_info['status'] = 'unhealthy'
+                            PodScheduler.reschedule_pods(node_id)
+                    
+                    # Update detailed health status
+                    node_info['health_status'] = {
+                        'conditions': conditions,
+                        'last_check': current_time.isoformat(),
+                        'details': {
+                            'heartbeat_age_seconds': heartbeat_age,
+                            'memory_usage_percent': memory_percent,
+                            'running_pods': running_pods,
+                            'container_status': container_status
+                        }
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"Error checking health for node {node_id}: {str(e)}")
                     if node_info['status'] == 'healthy':
-                        logger.warning(f"Node {node_id} marked as unhealthy - missed heartbeats")
                         node_info['status'] = 'unhealthy'
                         PodScheduler.reschedule_pods(node_id)
+            
             time.sleep(5)  # Check every 5 seconds
 
 # API Endpoints
@@ -172,6 +437,19 @@ def add_node():
     if not cpu_capacity:
         logger.error("No CPU capacity specified")
         return jsonify({'error': 'CPU capacity is required'}), 400
+    
+    # Add CPU capacity validation
+    try:
+        cpu_capacity = int(cpu_capacity)
+        if cpu_capacity <= 0:
+            logger.error(f"Invalid CPU capacity: {cpu_capacity} (must be positive)")
+            return jsonify({'error': 'CPU capacity must be positive'}), 400
+        if cpu_capacity > MAX_NODE_CPU:
+            logger.error(f"CPU capacity too high: {cpu_capacity} (maximum is {MAX_NODE_CPU})")
+            return jsonify({'error': f'Maximum CPU capacity per node is {MAX_NODE_CPU} cores'}), 400
+    except ValueError:
+        logger.error(f"Invalid CPU capacity: {cpu_capacity} (not a number)")
+        return jsonify({'error': 'CPU capacity must be a number'}), 400
     
     node_id = NodeManager.add_node(cpu_capacity)
     if isinstance(node_id, dict):
@@ -199,10 +477,35 @@ def create_pod():
         logger.error("No CPU requirement specified")
         return jsonify({'error': 'CPU requirement is required'}), 400
     
-    pod_id = PodScheduler.schedule_pod(cpu_required)
+    # Get optional image parameter
+    image = data.get('image', 'nginx:latest')
+    
+    # Add CPU requirement validation
+    try:
+        cpu_required = int(cpu_required)
+        if cpu_required <= 0:
+            logger.error(f"Invalid CPU requirement: {cpu_required} (must be positive)")
+            return jsonify({'error': 'CPU requirement must be positive'}), 400
+        if cpu_required > MAX_POD_CPU:
+            logger.error(f"CPU requirement too high: {cpu_required} (maximum is {MAX_POD_CPU})")
+            return jsonify({'error': f'Maximum CPU requirement per pod is {MAX_POD_CPU} cores'}), 400
+    except ValueError:
+        logger.error(f"Invalid CPU requirement: {cpu_required} (not a number)")
+        return jsonify({'error': 'CPU requirement must be a number'}), 400
+    
+    pod_id = PodScheduler.schedule_pod(cpu_required, image)
     if isinstance(pod_id, dict):
         return jsonify(pod_id), 400
-    return jsonify({'pod_id': pod_id, 'message': 'Pod scheduled successfully'})
+    
+    # Get the created pod info
+    pod_info = pods[pod_id]
+    return jsonify({
+        'pod_id': pod_id, 
+        'message': 'Pod scheduled successfully',
+        'node_id': pod_info['node_id'],
+        'image': pod_info['image'],
+        'access_url': f"http://localhost:{pod_info['host_port']}"
+    })
 
 @app.route('/cluster/status', methods=['GET'])
 def get_cluster_status():
@@ -213,12 +516,19 @@ def get_cluster_status():
                 'cpu_capacity': info['cpu_capacity'],
                 'cpu_available': info['cpu_available'],
                 'status': info['status'],
-                'pods': info['pods'],
+                'health_metrics': info.get('health_metrics', {}),
+                'health_status': info.get('health_status', {}),
+                'pods': [
+                    {
+                        'id': pod_id,
+                        'cpu_required': pods[pod_id]['cpu_required'] if pod_id in pods else 0
+                    }
+                    for pod_id in info['pods']
+                ],
                 'last_heartbeat': info['last_heartbeat'].isoformat()
             }
             for node_id, info in nodes.items()
-        },
-        'pods': pods
+        }
     }
     return jsonify(status)
 
