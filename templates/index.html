@@ -402,10 +402,16 @@
                     body: JSON.stringify({ cpu_capacity: parseInt(cpu) })
                 });
                 const data = await response.json();
-                modals.addNode.hide();
-                refreshStatus();
+                
+                if (data.error) {
+                    alert('Error adding node: ' + data.error);
+                } else {
+                    modals.addNode.hide();
+                    refreshStatus();
+                }
             } catch (error) {
                 console.error('Error adding node:', error);
+                alert('Error adding node: ' + error.message);
             }
         }
 
@@ -441,10 +447,16 @@
                     body: JSON.stringify({ cpu_required: parseInt(cpu) })
                 });
                 const data = await response.json();
-                modals.addPod.hide();
-                refreshStatus();
+                
+                if (data.error) {
+                    alert('Error creating pod: ' + data.error);
+                } else {
+                    modals.addPod.hide();
+                    refreshStatus();
+                }
             } catch (error) {
                 console.error('Error creating pod:', error);
+                alert('Error creating pod: ' + error.message);
             }
         }
     </script>
