@@ -571,7 +571,7 @@ def get_cluster_status():
 
 if __name__ == '__main__':
     logger.info("Starting API server...")
-    # Start health monitoring thread
+    # Start health monitoring thread in a separate process
     threading.Thread(target=HealthMonitor.check_health, daemon=True).start()
     logger.info("Health monitoring thread started")
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    app.run(host='0.0.0.0', port=5001, debug=True) 

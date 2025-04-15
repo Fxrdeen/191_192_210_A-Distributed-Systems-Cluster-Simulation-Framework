@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Distributed Cluster Simulation Framework</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Cluster Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
         :root {
             --primary-color: #326ce5;
@@ -191,274 +192,139 @@
         }
     </style>
 </head>
-<body>
-    <nav class="navbar">
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <span class="navbar-brand">
-                <i class="fas fa-dharmachakra"></i>
-                Distributed Cluster Simulation Framework
-            </span>
-            <button class="refresh-button" onclick="refreshStatus()">
-                <i class="fas fa-sync-alt"></i>
-            </button>
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-server me-2"></i>Cluster Management System
+            </a>
         </div>
     </nav>
 
-    <div class="container">
-        <!-- Control Panel -->
+    <div class="container mt-4">
+        <!-- Error Alert Section -->
+        <div id="errorAlert" class="alert alert-danger alert-dismissible fade d-none" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            <span id="errorMessage"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Success Alert Section -->
+        <div id="successAlert" class="alert alert-success alert-dismissible fade d-none" role="alert">
+            <i class="fas fa-check-circle me-2"></i>
+            <span id="successMessage"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Cluster Status Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line me-2"></i>Cluster Status
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="manualRefresh()">
+                    <i class="fas fa-sync-alt me-1"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="clusterStatus" class="row">
+                    <!-- Status will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Management Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-server me-2"></i>Node Management
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="addNodeForm" class="mb-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="cpuCapacity" class="form-label">CPU Capacity</label>
+                            <input type="number" class="form-control" id="cpuCapacity" required min="1">
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus me-2"></i>Add Node
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                <div id="nodesList" class="row">
+                    <!-- Nodes will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Pod Management Section -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-cube me-2"></i>Pod Management
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="createPodForm" class="mb-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="podCpuRequired" class="form-label">CPU Required</label>
+                            <input type="number" class="form-control" id="podCpuRequired" required min="1">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="podImage" class="form-label">Container Image</label>
+                            <input type="text" class="form-control" id="podImage" value="nginx:latest">
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-plus me-2"></i>Create Pod
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                <div id="podsList" class="row">
+                    <!-- Pods will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Health Monitoring Section -->
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Control Panel</h5>
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-heartbeat me-2"></i>Health Monitoring
+                </h5>
                 <div>
-                    <button class="btn btn-action btn-add-node" data-bs-toggle="modal" data-bs-target="#addNodeModal">
-                        <i class="fas fa-plus"></i> Add Node
-                    </button>
-                    <button class="btn btn-action btn-primary ms-2" data-bs-toggle="modal" data-bs-target="#addPodModal">
-                        <i class="fas fa-cube"></i> Create Pod
+                    <span class="badge bg-success me-2" id="monitoringStatus">Active</span>
+                    <button class="btn btn-sm btn-outline-primary" onclick="toggleMonitoring()">
+                        <i class="fas fa-pause me-1"></i> Pause
                     </button>
                 </div>
             </div>
-        </div>
-
-        <!-- Cluster Overview -->
-        <div id="clusterOverview" class="nodes-container">
-            <!-- Nodes will be dynamically inserted here -->
-        </div>
-    </div>
-
-    <!-- Add Node Modal -->
-    <div class="modal fade" id="addNodeModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New Node</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="nodeCpu" class="form-label">CPU Capacity</label>
-                        <input type="number" class="form-control" id="nodeCpu" min="1" value="4">
-                        <div class="form-text">Specify the CPU capacity for the new node</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="mb-3">Node Health</h6>
+                        <div id="nodeHealthMonitor" class="health-monitor">
+                            <!-- Node health data will be populated here -->
+                        </div>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="addNode()">Add Node</button>
+                    <div class="col-md-6">
+                        <h6 class="mb-3">Pod Health</h6>
+                        <div id="podHealthMonitor" class="health-monitor">
+                            <!-- Pod health data will be populated here -->
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Add Pod Modal -->
-    <div class="modal fade" id="addPodModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Create New Pod</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="podCpu" class="form-label">CPU Required</label>
-                        <input type="number" class="form-control" id="podCpu" min="1" value="1">
-                        <div class="form-text">Specify the CPU requirements for the new pod</div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="createPod()">Create Pod</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        let refreshInterval;
-        const modals = {
-            addNode: null,
-            addPod: null
-        };
-
-        document.addEventListener('DOMContentLoaded', () => {
-            modals.addNode = new bootstrap.Modal(document.getElementById('addNodeModal'));
-            modals.addPod = new bootstrap.Modal(document.getElementById('addPodModal'));
-            startRefreshInterval();
-            refreshStatus();
-        });
-
-        function startRefreshInterval() {
-            if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(refreshStatus, 5000);
-        }
-
-        function renderNodes(clusterData) {
-            const nodesContainer = document.getElementById('clusterOverview');
-            nodesContainer.innerHTML = '';
-
-            if (!clusterData.nodes || Object.keys(clusterData.nodes).length === 0) {
-                nodesContainer.innerHTML = `
-                    <div class="text-center text-muted p-5">
-                        <i class="fas fa-server fa-3x mb-3"></i>
-                        <h5>No nodes available</h5>
-                        <p>Add a node to get started</p>
-                    </div>
-                `;
-                return;
-            }
-
-            for (const [nodeId, nodeData] of Object.entries(clusterData.nodes)) {
-                const cpuUsage = nodeData.pods.reduce((sum, pod) => {
-                    return sum + (pod.cpu_required || 0);  // Handle undefined CPU values
-                }, 0);
-                const cpuCapacity = nodeData.cpu_capacity || 0;  // Handle undefined capacity
-                const cpuPercentage = cpuCapacity > 0 ? (cpuUsage / cpuCapacity) * 100 : 0;
-                const statusClass = cpuPercentage > 80 ? 'status-warning' : 'status-healthy';
-
-                const nodeElement = document.createElement('div');
-                nodeElement.className = 'node-card';
-                nodeElement.innerHTML = `
-                    <div class="node-header">
-                        <div>
-                            <span class="node-title">Node ${nodeId}</span>
-                            <span class="status-badge ${statusClass}">
-                                ${nodeData.status === 'healthy' ? 'Healthy' : 'Unhealthy'}
-                            </span>
-                        </div>
-                        <button class="btn btn-sm btn-outline-danger" onclick="removeNode('${nodeId}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                    
-                    <!-- Health Metrics -->
-                    <div class="health-metrics mb-3">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <small class="text-muted">Health Status</small>
-                            <small class="text-muted">Last Check: ${new Date(nodeData.health_status?.details?.last_check).toLocaleTimeString()}</small>
-                        </div>
-                        <div class="metrics-grid">
-                            ${nodeData.health_metrics ? `
-                                <div class="metric-item">
-                                    <i class="fas fa-memory text-primary"></i>
-                                    <span>Memory: ${(nodeData.health_metrics.memory_usage_percent || 0).toFixed(1)}%</span>
-                                </div>
-                                <div class="metric-item">
-                                    <i class="fas fa-microchip text-success"></i>
-                                    <span>Pods: ${nodeData.health_metrics.running_pods || 0}</span>
-                                </div>
-                                <div class="metric-item">
-                                    <i class="fas fa-heartbeat ${nodeData.health_status?.conditions?.heartbeat ? 'text-success' : 'text-danger'}"></i>
-                                    <span>Heartbeat: ${nodeData.health_status?.details?.heartbeat_age_seconds || 0}s ago</span>
-                                </div>
-                                ${nodeData.health_metrics.last_error ? `
-                                    <div class="metric-item text-danger">
-                                        <i class="fas fa-exclamation-triangle"></i>
-                                        <span>Error: ${nodeData.health_metrics.last_error}</span>
-                                    </div>
-                                ` : ''}
-                            ` : ''}
-                        </div>
-                    </div>
-
-                    <div class="resource-info">
-                        <span>CPU Usage</span>
-                        <span>${cpuUsage.toFixed(1)} / ${cpuCapacity} cores</span>
-                    </div>
-                    <div class="resource-bar">
-                        <div class="resource-bar-fill" style="width: ${Math.min(cpuPercentage, 100)}%"></div>
-                    </div>
-                    <div class="pod-list">
-                        <div class="d-flex justify-content-between mb-2">
-                            <small class="text-muted">Pods (${nodeData.pods.length})</small>
-                        </div>
-                        ${nodeData.pods.map(pod => `
-                            <div class="pod-item">
-                                <span><i class="fas fa-cube me-2"></i>Pod ${pod.id}</span>
-                                <span class="text-muted">${pod.cpu_required} CPU</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-                nodesContainer.appendChild(nodeElement);
-            }
-        }
-
-        async function refreshStatus() {
-            try {
-                const response = await fetch('/api/cluster/status');
-                const data = await response.json();
-                renderNodes(data);
-            } catch (error) {
-                console.error('Error refreshing status:', error);
-            }
-        }
-
-        async function addNode() {
-            const cpu = document.getElementById('nodeCpu').value;
-            try {
-                const response = await fetch('/api/nodes', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cpu_capacity: parseInt(cpu) })
-                });
-                const data = await response.json();
-                
-                if (data.error) {
-                    alert('Error adding node: ' + data.error);
-                } else {
-                    modals.addNode.hide();
-                    refreshStatus();
-                }
-            } catch (error) {
-                console.error('Error adding node:', error);
-                alert('Error adding node: ' + error.message);
-            }
-        }
-
-        async function removeNode(nodeId) {
-            if (!confirm(`Are you sure you want to remove Node ${nodeId}?`)) return;
-            try {
-                const response = await fetch(`/api/nodes/${nodeId}`, {
-                    method: 'DELETE'
-                });
-                const data = await response.json();
-                
-                // Show rescheduling status
-                if (data.rescheduled_pods !== undefined) {
-                    const message = `Node removed successfully.\n` +
-                        `Rescheduled pods: ${data.rescheduled_pods}\n` +
-                        `Failed to reschedule: ${data.failed_pods}`;
-                    alert(message);
-                }
-                
-                refreshStatus();
-            } catch (error) {
-                console.error('Error removing node:', error);
-                alert('Error removing node: ' + error.message);
-            }
-        }
-
-        async function createPod() {
-            const cpu = document.getElementById('podCpu').value;
-            try {
-                const response = await fetch('/api/pods', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ cpu_required: parseInt(cpu) })
-                });
-                const data = await response.json();
-                
-                if (data.error) {
-                    alert('Error creating pod: ' + data.error);
-                } else {
-                    modals.addPod.hide();
-                    refreshStatus();
-                }
-            } catch (error) {
-                console.error('Error creating pod:', error);
-                alert('Error creating pod: ' + error.message);
-            }
-        }
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html> 

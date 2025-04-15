@@ -4,8 +4,8 @@ import sys
 import time
 import multiprocessing
 
-# Update BASE_URL to use the IP address where the server is running
-BASE_URL = 'http://127.0.0.1:5000'
+# Update BASE_URL to use the IP address where the server is running (127.0.0.1)
+BASE_URL = 'http://127.0.0.1:5001'
 
 def check_server():
     try:
