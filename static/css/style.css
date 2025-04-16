@@ -1,0 +1,328 @@
+/* Custom Variables */
+:root {
+    --primary-color: #4a90e2;
+    --success-color: #2ecc71;
+    --warning-color: #f1c40f;
+    --danger-color: #e74c3c;
+    --dark-color: #2c3e50;
+    --light-color: #ecf0f1;
+}
+
+/* General Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Card Styles */
+.card {
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+.card-header {
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+    background-color: white;
+}
+
+/* Node Card Styles */
+.node-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.node-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.node-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--dark-color);
+}
+
+.status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.status-healthy {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.status-warning {
+    background-color: var(--warning-color);
+    color: var(--dark-color);
+}
+
+.status-unhealthy {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+/* Resource Bar Styles */
+.resource-bar {
+    height: 8px;
+    background-color: var(--light-color);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 0.5rem 0;
+}
+
+.resource-bar-fill {
+    height: 100%;
+    background-color: var(--primary-color);
+    transition: width 0.3s ease;
+}
+
+/* Pod List Styles */
+.pod-list {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--light-color);
+}
+
+.pod-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    background-color: var(--light-color);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+/* Button Styles */
+.btn {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-success {
+    background-color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+.btn-danger {
+    background-color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+/* Alert Styles */
+.alert {
+    border: none;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.alert-danger {
+    background-color: #fee2e2;
+    color: #dc2626;
+}
+
+.alert-success {
+    background-color: #dcfce7;
+    color: #16a34a;
+}
+
+/* Form Styles */
+.form-control {
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 1rem;
+}
+
+.form-control:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+/* Animation Classes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out forwards;
+}
+
+.fade-out {
+    animation: fadeOut 0.3s ease-out forwards;
+}
+
+/* Health Monitoring Styles */
+.health-monitor {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 1rem;
+    background-color: #f9f9f9;
+    position: relative;
+}
+
+.health-item {
+    background-color: white;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: transform 0.2s, box-shadow 0.2s;
+    will-change: transform, opacity;
+}
+
+.health-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.health-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #eee;
+}
+
+.health-item-title {
+    font-weight: 600;
+    margin: 0;
+}
+
+.health-item-status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.health-item-status.healthy {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.health-item-status.warning {
+    background-color: var(--warning-color);
+    color: var(--dark-color);
+}
+
+.health-item-status.unhealthy {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+.health-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.metric-label {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.metric-bar {
+    height: 8px;
+    background-color: #eee;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.bar-fill.healthy {
+    background-color: var(--success-color);
+}
+
+.bar-fill.warning {
+    background-color: var(--warning-color);
+}
+
+.bar-fill.unhealthy {
+    background-color: var(--danger-color);
+}
+
+.metric-value {
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: right;
+}
+
+.health-timestamp {
+    font-size: 0.8rem;
+    color: #999;
+    text-align: right;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #eee;
+}
+
+/* Custom scrollbar for health monitor */
+.health-monitor::-webkit-scrollbar {
+    width: 6px;
+}
+
+.health-monitor::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.health-monitor::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+
+.health-monitor::-webkit-scrollbar-thumb:hover {
+    background: #999;
+} 
