@@ -332,15 +332,47 @@ class HealthMonitor:
         while True:
             if node_id in nodes:
                 try:
-                    # Get container stats
+                    # Get container stats for the node
                     container = client.containers.get(nodes[node_id]['container_id'])
                     stats = container.stats(stream=False)  # Get current stats
                     
-                    # Calculate health metrics
+                    # Calculate health metrics for the node
                     cpu_usage = stats['cpu_stats']['cpu_usage']['total_usage']
                     memory_usage = stats['memory_stats'].get('usage', 0)
                     memory_limit = stats['memory_stats'].get('limit', 1)
                     memory_percent = (memory_usage / memory_limit) * 100
+                    
+                    # Collect pod-specific metrics
+                    pod_stats = {}
+                    for pod_id in nodes[node_id]['pods']:
+                        if pod_id in pods and 'container_id' in pods[pod_id]:
+                            try:
+                                pod_container = client.containers.get(pods[pod_id]['container_id'])
+                                pod_container_stats = pod_container.stats(stream=False)
+                                
+                                # Calculate pod-specific metrics
+                                pod_cpu_usage = pod_container_stats['cpu_stats']['cpu_usage']['total_usage']
+                                pod_memory_usage = pod_container_stats['memory_stats'].get('usage', 0)
+                                pod_memory_limit = pod_container_stats['memory_stats'].get('limit', 1)
+                                pod_memory_percent = (pod_memory_usage / pod_memory_limit) * 100
+                                
+                                # Store pod metrics
+                                pod_stats[pod_id] = {
+                                    'cpu_usage': pod_cpu_usage,
+                                    'memory_usage': pod_memory_usage,
+                                    'memory_limit': pod_memory_limit,
+                                    'memory_percent': pod_memory_percent,
+                                    'status': pod_container.status
+                                }
+                                
+                                # Update pod status in the pods dictionary
+                                pods[pod_id]['status'] = pod_container.status
+                            except Exception as e:
+                                logger.warning(f"Error getting stats for pod {pod_id}: {str(e)}")
+                                pod_stats[pod_id] = {
+                                    'error': str(e),
+                                    'status': 'unknown'
+                                }
                     
                     # Update node health information
                     nodes[node_id].update({
@@ -353,7 +385,8 @@ class HealthMonitor:
                             'memory_limit_mb': memory_limit / (1024 * 1024),
                             'running_pods': len(nodes[node_id]['pods']),
                             'container_status': container.status,
-                            'last_error': None
+                            'last_error': None,
+                            'pod_stats': pod_stats
                         }
                     })
                 except Exception as e:
@@ -521,7 +554,9 @@ def get_cluster_status():
                 'pods': [
                     {
                         'id': pod_id,
-                        'cpu_required': pods[pod_id]['cpu_required'] if pod_id in pods else 0
+                        'cpu_required': pods[pod_id]['cpu_required'] if pod_id in pods else 0,
+                        'status': pods[pod_id]['status'] if pod_id in pods else 'unknown',
+                        'metrics': info.get('health_metrics', {}).get('pod_stats', {}).get(pod_id, {})
                     }
                     for pod_id in info['pods']
                 ],
